@@ -1,5 +1,6 @@
 import sys
 import cv2
+import os
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QVBoxLayout)
 from PyQt5.QtWidgets import QMainWindow
@@ -66,21 +67,44 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.statusbar)
 
     def recording(self):
-        if self.recordingButtonState == False:
+        if not self.recordingButtonState:
             self.recordingButtonState = True
             self.recordingButton.setText("Остановить запись")
 
-            cap = cv2.VideoCapture(0)
-            codec = cv2.VideoWriter_fourcc(*'XVID')
-            out = cv2.VideoWriter('captured.avi', codec, 25.0, (640, 480))
-            while self.recordingButtonState == True:
-                ret, frame = cap.read()
-                if cv2.waitKey(1) & 0xFF == ('q') or ret == False:
+            user = "admin"
+            password = "admin"
+            ip = "192.168.3.100:8554"
+            address = "rtsp://{user}:{password}@{ip}".format(user=user, password=password, ip=ip)
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
+            vcap = cv2.VideoCapture(address, cv2.CAP_FFMPEG)
+
+            if not vcap.isOpened():
+                print("Error opening video file")
+
+            frame_width = int(vcap.get(3))
+            frame_height = int(vcap.get(4))
+            frame_size = (frame_width, frame_height)
+            fps = 25
+            num = 1
+            path_to_output_file = 'captured{num}.avi'.format(num=num)
+            while os.path.isfile(path_to_output_file):
+                num += 1
+                path_to_output_file = 'captured{num}.avi'.format(num=num)
+
+            out = cv2.VideoWriter(path_to_output_file, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
+                                  fps, frame_size)
+
+            while self.recordingButtonState and vcap.isOpened():
+                ret, frame = vcap.read()
+                if ret:
+                    out.write(frame)
+                    cv2.imshow("Frame", frame)
+                    cv2.waitKey(fps)
+                else:
+                    print('Stream disconnected')
                     break
-                cv2.imshow('frame', frame)
-                out.write(frame)
+            vcap.release()
             out.release()
-            cap.release()
             cv2.destroyAllWindows()
 
         else:
