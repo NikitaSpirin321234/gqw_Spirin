@@ -1,15 +1,35 @@
 import sys
+import time
+from multiprocessing import Process
+
 import cv2
 import os
+import glob
 from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.QtCore import QTimer
 from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QVBoxLayout)
 from PyQt5.QtWidgets import QMainWindow
+from datetime import datetime
+from pathlib import Path
+import multiprocessing as mp
 from Videoplayer import VideoPlayer
 
 
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        self.guiInit()
+        user = "nikita"
+        password = "nik"
+        server = "nikita-GL62M-7REX"
+        os.system("bash ../scripts/roslaunch.sh & bash ../scripts/rosrun.sh &".
+                  format(user=user, password=password, server=server))  # "ssh {user}@{server} 'bash -s' < script.sh"
+
+        self.recordingButtonState = False
+
+        self.recordingButton.clicked.connect(self.recording)
+
+    def guiInit(self):
         self.setWindowTitle("Synchronization application")
         self.setMinimumSize(QtCore.QSize(1280, 760))
         self.setMaximumSize(QtCore.QSize(1280, 760))
@@ -24,9 +44,6 @@ class MainWindow(QMainWindow):
         self.recordingButton.setObjectName("recordingButton")
         self.recordingButton.setText("Начать запись")
         self.recordingButton.setFixedHeight(35)
-        self.recordingButtonState = False
-
-        self.recordingButton.clicked.connect(self.recording)
 
         recordingButtonLayout = QHBoxLayout()
         recordingButtonLayout.setContentsMargins(540, 0, 540, 0)
@@ -69,51 +86,77 @@ class MainWindow(QMainWindow):
     def recording(self):
         if not self.recordingButtonState:
             self.recordingButtonState = True
+            self.recordingRobotcamera()
+            # self.recordingIpcamera()
+
+            # p1 = Process(target=self.recordingIpcamera)
+            # p1.start()
+            # p2 = Process(target=self.recordingRobotcamera)
+            # p2.start()
+
+            self.recordingButton.setEnabled(False)
+            QTimer.singleShot(1000, lambda: self.recordingButton.setEnabled(True))
             self.recordingButton.setText("Остановить запись")
-
-            user = "admin"
-            password = "admin"
-            ip = "192.168.3.100:8554"
-            address = "rtsp://{user}:{password}@{ip}".format(user=user, password=password, ip=ip)
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
-            vcap = cv2.VideoCapture(address, cv2.CAP_FFMPEG)
-
-            if not vcap.isOpened():
-                print("Error opening video file")
-
-            frame_width = int(vcap.get(3))
-            frame_height = int(vcap.get(4))
-            frame_size = (frame_width, frame_height)
-            fps = 25
-            num = 1
-            path_to_output_file = 'captured{num}.avi'.format(num=num)
-            while os.path.isfile(path_to_output_file):
-                num += 1
-                path_to_output_file = 'captured{num}.avi'.format(num=num)
-
-            out = cv2.VideoWriter(path_to_output_file, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'),
-                                  fps, frame_size)
-
-            while self.recordingButtonState and vcap.isOpened():
-                ret, frame = vcap.read()
-                if ret:
-                    out.write(frame)
-                    cv2.imshow("Frame", frame)
-                    cv2.waitKey(fps)
-                else:
-                    print('Stream disconnected')
-                    break
-            vcap.release()
-            out.release()
-            cv2.destroyAllWindows()
 
         else:
             self.recordingButtonState = False
+
+            os.system("bash ../scripts/stoprecord.sh")
+            time.sleep(1)
+            list_of_files = glob.glob('../catkin_ws/src/mobot/mobot_gazebo/bagfiles/*.bag')
+            latest_file = max(list_of_files, key=os.path.getctime)
+            latest_file_mp4 = Path(latest_file).with_suffix(".mp4")
+            os.system(f"bash ../scripts/convert.sh {latest_file}")
+            os.system(f"mv {latest_file_mp4} ../videofiles/camera_robot")
+
             self.recordingButton.setText("Начать запись")
+
+    def recordingRobotcamera(self):
+        os.system("bash ../scripts/rosrecord.sh &")
+
+    def recordingIpcamera(self):
+        user = "admin"
+        password = "admin"
+        server = "192.168.4.100:8554/live"
+        address = f"rtsp://{user}:{password}@{server}"
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
+        vcap = cv2.VideoCapture(address, cv2.CAP_FFMPEG)
+
+        if not vcap.isOpened():
+            print("Error opening video file")
+            return
+
+        frame_width = int(vcap.get(3))
+        frame_height = int(vcap.get(4))
+        frame_size = (frame_width, frame_height)
+        fps = 25
+        date_now = datetime.utcnow().strftime("%Y-%m-%d-%H-%M-%S")
+        path_to_output_file = f"../videofiles/ip-camera/{date_now}.mp4"
+
+        out = cv2.VideoWriter(path_to_output_file, cv2.VideoWriter_fourcc(*'mp4v'),  # ('M', 'J', 'P', 'G'),
+                              fps, frame_size)
+
+        while self.recordingButtonState and vcap.isOpened():
+            ret, frame = vcap.read()
+            if ret:
+                out.write(frame)
+                cv2.imshow("Frame", frame)
+                cv2.waitKey(fps)
+            else:
+                vcap = cv2.VideoCapture(address)
+                print('Stream disconnected')
+                break
+        vcap.release()
+        out.release()
+        cv2.destroyAllWindows()
+
+    def closeEvent(self, a0: QtGui.QCloseEvent):
+        os.system("kill -9 `pgrep gz`")
+        os.system("kill -9 `pgrep image_view`")
 
 
 app = QApplication(sys.argv)
 mainwindow = MainWindow()
-mainwindow.showMaximized()
+mainwindow.show()
 
 sys.exit(app.exec_())
