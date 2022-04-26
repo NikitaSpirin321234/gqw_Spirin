@@ -1,9 +1,6 @@
 # gqw_Spirin
 Разработка подхода к автономному сбору датасетов в проекте Duckietown
 
-# gqw_Spirin
-Разработка подхода к автономному сбору датасетов в проекте Duckietown
-
 ## Подготовка к запуску
 ```console
 gqw_Spirin $ pip3 install -r requirements.txt
