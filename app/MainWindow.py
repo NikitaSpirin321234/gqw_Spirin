@@ -1,6 +1,5 @@
 import sys
 import time
-from multiprocessing import Process
 
 import cv2
 import os
@@ -11,14 +10,71 @@ from PyQt5.QtWidgets import (QApplication, QHBoxLayout, QVBoxLayout)
 from PyQt5.QtWidgets import QMainWindow
 from datetime import datetime
 from pathlib import Path
-import multiprocessing as mp
+
 from Videoplayer import VideoPlayer
+from PyQt5.QtCore import QObject, QThread, pyqtSignal
+
+
+class WorkerIpCamera(QObject):
+    finished_recording = False
+    finished_thread = pyqtSignal()
+    progress = QtCore.pyqtSignal(str, object)
+
+    def run(self):
+        user = "admin"
+        password = "admin"
+        server = "192.168.1.100:8554/live"
+        address = f"rtsp://{user}:{password}@{server}"
+        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
+        vcap = cv2.VideoCapture(address, cv2.CAP_FFMPEG)
+
+        if not vcap.isOpened():
+            print("Error opening video file")
+            self.finished.emit()
+
+        frame_width = int(vcap.get(3))
+        frame_height = int(vcap.get(4))
+        frame_size = (frame_width, frame_height)
+        fps = 25
+
+        date_now = datetime.utcnow().strftime("%Y-%m-%d-%H-%M-%S")
+        path_to_output_file = f"../videofiles/ip-camera/{date_now}.mp4"
+
+        out = cv2.VideoWriter(path_to_output_file, cv2.VideoWriter_fourcc(*'mp4v'),  # ('M', 'J', 'P', 'G'),
+                              fps, frame_size)
+
+        while not self.finished_recording and vcap.isOpened():
+            ret, frame = vcap.read()
+            if ret:
+                out.write(frame)
+                cv2.imshow("Frame", frame)
+                cv2.waitKey(fps)
+            else:
+                vcap = cv2.VideoCapture(address)
+                print('Stream disconnected')
+                break
+        vcap.release()
+        out.release()
+        cv2.destroyAllWindows()
+        self.finished_thread.emit()
+
+    def finish(self):
+        self.finished_recording = True
+
+
+class WorkerCameraRobot(QObject):
+    finished = pyqtSignal()
+    progress = QtCore.pyqtSignal(str, object)
+
+    def run(self):
+        os.system("bash ../scripts/rosrecord.sh &")
+        self.finished.emit()
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.guiInit()
+    def __init__(self, parent=None):
+        super(MainWindow, self).__init__(parent)
+        self.setupUi()
         user = "nikita"
         password = "nik"
         server = "nikita-GL62M-7REX"
@@ -29,7 +85,7 @@ class MainWindow(QMainWindow):
 
         self.recordingButton.clicked.connect(self.recording)
 
-    def guiInit(self):
+    def setupUi(self):
         self.setWindowTitle("Synchronization application")
         self.setMinimumSize(QtCore.QSize(1280, 760))
         self.setMaximumSize(QtCore.QSize(1280, 760))
@@ -87,20 +143,14 @@ class MainWindow(QMainWindow):
         if not self.recordingButtonState:
             self.recordingButtonState = True
             self.recordingRobotcamera()
-            # self.recordingIpcamera()
-
-            # p1 = Process(target=self.recordingIpcamera)
-            # p1.start()
-            # p2 = Process(target=self.recordingRobotcamera)
-            # p2.start()
-
             self.recordingButton.setEnabled(False)
             QTimer.singleShot(1000, lambda: self.recordingButton.setEnabled(True))
             self.recordingButton.setText("Остановить запись")
+            self.recordingIpcamera()
 
         else:
             self.recordingButtonState = False
-
+            self.workerIpCamera.finish()
             os.system("bash ../scripts/stoprecord.sh")
             time.sleep(1)
             list_of_files = glob.glob('../catkin_ws/src/mobot/mobot_gazebo/bagfiles/*.bag')
@@ -112,43 +162,24 @@ class MainWindow(QMainWindow):
             self.recordingButton.setText("Начать запись")
 
     def recordingRobotcamera(self):
-        os.system("bash ../scripts/rosrecord.sh &")
+        self.threadRobotCamera = QThread()
+        self.workerRobotCamera = WorkerCameraRobot()
+        self.workerRobotCamera.moveToThread(self.threadRobotCamera)
+        self.threadRobotCamera.started.connect(self.workerRobotCamera.run)
+        self.workerRobotCamera.finished.connect(self.threadRobotCamera.quit)
+        self.workerRobotCamera.finished.connect(self.workerRobotCamera.deleteLater)
+        self.threadRobotCamera.finished.connect(self.threadRobotCamera.deleteLater)
+        self.threadRobotCamera.start()
 
     def recordingIpcamera(self):
-        user = "admin"
-        password = "admin"
-        server = "192.168.4.100:8554/live"
-        address = f"rtsp://{user}:{password}@{server}"
-        os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
-        vcap = cv2.VideoCapture(address, cv2.CAP_FFMPEG)
-
-        if not vcap.isOpened():
-            print("Error opening video file")
-            return
-
-        frame_width = int(vcap.get(3))
-        frame_height = int(vcap.get(4))
-        frame_size = (frame_width, frame_height)
-        fps = 25
-        date_now = datetime.utcnow().strftime("%Y-%m-%d-%H-%M-%S")
-        path_to_output_file = f"../videofiles/ip-camera/{date_now}.mp4"
-
-        out = cv2.VideoWriter(path_to_output_file, cv2.VideoWriter_fourcc(*'mp4v'),  # ('M', 'J', 'P', 'G'),
-                              fps, frame_size)
-
-        while self.recordingButtonState and vcap.isOpened():
-            ret, frame = vcap.read()
-            if ret:
-                out.write(frame)
-                cv2.imshow("Frame", frame)
-                cv2.waitKey(fps)
-            else:
-                vcap = cv2.VideoCapture(address)
-                print('Stream disconnected')
-                break
-        vcap.release()
-        out.release()
-        cv2.destroyAllWindows()
+        self.threadIpCamera = QThread()
+        self.workerIpCamera = WorkerIpCamera(self)
+        self.workerIpCamera.moveToThread(self.threadIpCamera)
+        self.threadIpCamera.started.connect(self.workerIpCamera.run)
+        self.workerIpCamera.finished_thread.connect(self.threadIpCamera.quit)
+        self.workerIpCamera.finished_thread.connect(self.workerIpCamera.deleteLater)
+        self.threadIpCamera.finished.connect(self.threadIpCamera.deleteLater)
+        self.threadIpCamera.start()
 
     def closeEvent(self, a0: QtGui.QCloseEvent):
         os.system("kill -9 `pgrep gz`")
