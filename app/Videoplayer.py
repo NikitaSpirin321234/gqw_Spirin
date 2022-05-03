@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QWidget, QPushButton
 class VideoPlayer(QWidget):
     def __init__(self):
         super().__init__()
+        self.setFixedWidth(630)
         self.mediaPlayer = QMediaPlayer(None, QMediaPlayer.VideoSurface)
         video_widget = QVideoWidget()
 
