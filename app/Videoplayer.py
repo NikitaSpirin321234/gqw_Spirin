@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QWidget, QPushButton
 class VideoPlayer(QWidget):
     def __init__(self):
         super().__init__()
+        self.currentFileName = None
         self.setFixedWidth(630)
         self.mediaPlayer = QMediaPlayer(None, QMediaPlayer.VideoSurface)
         video_widget = QVideoWidget()
@@ -62,6 +63,7 @@ class VideoPlayer(QWidget):
             self.mediaPlayer.setMedia(
                 QMediaContent(QUrl.fromLocalFile(fileName)))
             self.playButton.setEnabled(True)
+            self.currentFileName = fileName
 
     def play(self):
         if self.mediaPlayer.state() == QMediaPlayer.PlayingState:
@@ -90,3 +92,8 @@ class VideoPlayer(QWidget):
         self.playButton.setEnabled(False)
         self.error.setText("Ошибка: " + self.mediaPlayer.errorString())
         print(self.mediaPlayer.errorString())
+
+    def setVideo(self, path):
+        self.mediaPlayer.setMedia(
+            QMediaContent(QUrl.fromLocalFile(path)))
+        self.playButton.setEnabled(False)
