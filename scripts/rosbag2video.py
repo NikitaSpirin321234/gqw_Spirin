@@ -223,7 +223,11 @@ class RosVideoWriter():
                             cv_image = cv2.imdecode(np_arr, cv2.CV_LOAD_IMAGE_COLOR)
                         self.write_output_video( msg, topic, t, MJPEG_VIDEO )
                     else:
-                        print('unsupported jpeg format:', msg.format, '.', topic)
+                        if self.opt_display_images:
+                            np_arr = np.fromstring(msg.data, np.uint16)
+                            cv_image = cv2.imdecode(np_arr, cv2.CV_LOAD_IMAGE_COLOR)
+                        self.write_output_video( msg, topic, t, MJPEG_VIDEO )
+                        # print('unsupported jpeg format:', msg.format, '.', topic)
 
             # has no attribute 'format'
             except AttributeError:

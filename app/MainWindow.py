@@ -75,6 +75,21 @@ class WorkerIpCamera(QObject):
         address = f"rtsp://{user}:{password}@{server}"
         print(address)
         os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;udp"
+
+        list_of_files = []
+        while len(list_of_files) == 0:
+            list_of_files = glob.glob('../catkin_ws/src/mobot/mobot_gazebo/bagfiles/*.bag.active')
+            # print(list_of_files)
+            # print(len(list_of_files))
+            time.sleep(0.5)
+
+        time.sleep(5)
+
+        date_now = datetime.utcnow().strftime("%Y-%m-%d-%H-%M-%S")
+        path_to_output_file = f"../videofiles/ip-camera/{date_now}.mp4"
+
+        time_now = str(time.time())
+
         vcap = cv2.VideoCapture(address, cv2.CAP_FFMPEG)
 
         if not vcap.isOpened():
@@ -85,11 +100,6 @@ class WorkerIpCamera(QObject):
         frame_height = int(vcap.get(4))
         frame_size = (frame_width, frame_height)
         fps = 25
-
-        date_now = datetime.utcnow().strftime("%Y-%m-%d-%H-%M-%S.%f")
-        path_to_output_file = f"../videofiles/ip-camera/{date_now}.mp4"
-
-        time_now = str(time.time())
 
         out = cv2.VideoWriter(path_to_output_file, cv2.VideoWriter_fourcc(*'mp4v'),  # ('M', 'J', 'P', 'G'),
                               fps, frame_size)
@@ -109,7 +119,9 @@ class WorkerIpCamera(QObject):
         cv2.destroyAllWindows()
 
         setNewTime(path_to_output_file, time_now)
-        print(time_now)
+        # print("Time Start of recording Ip-camera : " + time_now)
+        # time_now = str(time.time())
+        # print("Time End of recording Ip-camera : " + time_now)
 
         self.finished_thread.emit()
 
@@ -122,7 +134,10 @@ class WorkerCameraRobot(QObject):
     progress = QtCore.pyqtSignal(str, object)
 
     def run(self):
-        os.system("bash ../scripts/rosrecord.sh &")
+        name = "autobot05"
+        proc = subprocess.Popen(["bash", "../scripts/rosrecord.sh", name, "&"])
+        # print("after record")
+        # print("PID: ", proc.pid)
         self.finished.emit()
 
 
@@ -133,8 +148,8 @@ class MainWindow(QMainWindow):
         user = "nikita"
         password = "nik"
         server = "nikita-GL62M-7REX"
-        os.system("bash ../scripts/roslaunch.sh & bash ../scripts/rosrun.sh &".
-                  format(user=user, password=password, server=server))  # "ssh {user}@{server} 'bash -s' < script.sh"
+        # os.system("bash ../scripts/roslaunch.sh & bash ../scripts/rosrun.sh &")  # .
+        #           format(user=user, password=password, server=server))  # "ssh {user}@{server} 'bash -s' < script.sh"
 
         self.recordingButtonState = False
 
@@ -206,25 +221,8 @@ class MainWindow(QMainWindow):
 
         else:
             self.recordingButtonState = False
-            self.workerIpCamera.finish()
-            os.system("bash ../scripts/stoprecord.sh")
-            time.sleep(1)
-            list_of_files = glob.glob('../catkin_ws/src/mobot/mobot_gazebo/bagfiles/*.bag')
-            latest_file = max(list_of_files, key=os.path.getctime)
-
-            info_dict = yaml.load(Bag(latest_file, 'r')._get_yaml_info())
-            duration = info_dict['duration']
-            start_time = str(info_dict['start'])
-            print("start_time: ", start_time)
-            print("duration: ", duration)
-
-            latest_file_mp4 = Path(latest_file).with_suffix(".mp4")
-            print("latest_file_mp4: ", latest_file_mp4)
-            os.system(f"bash ../scripts/convert.sh {latest_file}")
-            time.sleep(1)
-            setNewTime(latest_file_mp4, start_time)
-
-            os.system(f"mv {latest_file_mp4} ../videofiles/camera_robot")
+            self.endRecordingIpcamera()
+            self.endRecordingRobotcamera()
 
             self.recordingButton.setText("Начать запись")
 
@@ -238,6 +236,27 @@ class MainWindow(QMainWindow):
         self.threadRobotCamera.finished.connect(self.threadRobotCamera.deleteLater)
         self.threadRobotCamera.start()
 
+    def endRecordingRobotcamera(self):
+        os.system("kill -2 `pgrep record`")
+        time.sleep(10)
+        print(time.time())
+        list_of_files = glob.glob('../catkin_ws/src/mobot/mobot_gazebo/bagfiles/*.bag')
+        latest_file = max(list_of_files, key=os.path.getctime)
+
+        info_dict = yaml.load(Bag(latest_file, 'r')._get_yaml_info())
+        duration = info_dict['duration']
+        start_time = str(info_dict['start'])
+        print("start_time: ", start_time)
+        print("duration: ", duration)
+
+        latest_file_mp4 = Path(latest_file).with_suffix(".mp4")
+        print("latest_file_mp4: ", latest_file_mp4)
+        os.system(f"bash ../scripts/convert.sh {latest_file}")
+        time.sleep(1)
+        setNewTime(latest_file_mp4, start_time)
+
+        os.system(f"mv {latest_file_mp4} ../videofiles/camera_robot")
+
     def recordingIpcamera(self):
         self.threadIpCamera = QThread()
         self.workerIpCamera = WorkerIpCamera(self)
@@ -247,6 +266,9 @@ class MainWindow(QMainWindow):
         self.workerIpCamera.finished_thread.connect(self.workerIpCamera.deleteLater)
         self.threadIpCamera.finished.connect(self.threadIpCamera.deleteLater)
         self.threadIpCamera.start()
+
+    def endRecordingIpcamera(self):
+        self.workerIpCamera.finish()
 
     def synchronize(self):
         path1 = self.video1.currentFileName

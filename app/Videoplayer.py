@@ -27,7 +27,10 @@ class VideoPlayer(QWidget):
 
         open_button = QPushButton("Открыть видеофайл")
         open_button.setFixedHeight(28)
+        open_button.setFixedWidth(160)
         open_button.clicked.connect(self.openFile)
+
+        self.path_to_file = QLabel()
 
         # Create layouts to place inside widget
         control_layout = QHBoxLayout()
@@ -36,7 +39,6 @@ class VideoPlayer(QWidget):
         control_layout.addWidget(self.positionSlider)
 
         open_button_layout = QHBoxLayout()
-        open_button_layout.setContentsMargins(220, 0, 220, 0)
         open_button_layout.addWidget(open_button)
 
         layout = QVBoxLayout()
@@ -44,6 +46,7 @@ class VideoPlayer(QWidget):
         layout.addLayout(control_layout)
         layout.addWidget(self.error)
         layout.addLayout(open_button_layout)
+        layout.addWidget(self.path_to_file)
 
         # # Set widget to contain window contents
         self.setLayout(layout)
@@ -64,6 +67,7 @@ class VideoPlayer(QWidget):
                 QMediaContent(QUrl.fromLocalFile(fileName)))
             self.playButton.setEnabled(True)
             self.currentFileName = fileName
+            self.path_to_file.setText(fileName)
 
     def play(self):
         if self.mediaPlayer.state() == QMediaPlayer.PlayingState:
@@ -96,4 +100,4 @@ class VideoPlayer(QWidget):
     def setVideo(self, path):
         self.mediaPlayer.setMedia(
             QMediaContent(QUrl.fromLocalFile(path)))
-        self.playButton.setEnabled(False)
+        # self.playButton.setEnabled(False)
